@@ -1,0 +1,11 @@
+.env
+.mcp.json
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+dist/
+*.egg-info/
+.ruff_cache/
+reports/
+*.pdf
