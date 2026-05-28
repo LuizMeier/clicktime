@@ -1,6 +1,6 @@
 # ClickTime MCP Server
 
-An MCP (Model Context Protocol) server that lets you manage ClickTime time tracking through natural language in Claude Code. Log hours, submit timesheets, generate PDF reports, and — for managers — review and approve your team's time.
+An MCP (Model Context Protocol) server that lets you manage ClickTime time tracking through natural language using any MCP-compatible client. Log hours, submit timesheets, generate PDF reports, and — for managers — review and approve your team's time.
 
 ---
 
@@ -9,7 +9,7 @@ An MCP (Model Context Protocol) server that lets you manage ClickTime time track
 ```
 You (natural language)
       ↓
-Claude Code
+MCP-compatible client (Claude Code, Cursor, Zed, etc.)
       ↓  calls tools
 ClickTime MCP Server  (runs locally)
       ↓  HTTPS + token
@@ -65,9 +65,9 @@ CLICKTIME_REPORT_DIR=./reports   # where PDFs are saved
 
 ---
 
-## Adding to Claude Code
+## Connecting to your MCP client
 
-Edit (or create) `.claude/settings.json` in your project, or the global settings at `~/.claude/settings.json`:
+The server exposes a standard MCP stdio transport. Add it to your client's MCP configuration using the following server definition:
 
 ```json
 {
@@ -86,9 +86,16 @@ Edit (or create) `.claude/settings.json` in your project, or the global settings
 }
 ```
 
-> The API token is read directly from the `.env` file at the project root — no need to add it to the MCP `env` block. The server resolves the `.env` path relative to the package location, so it works regardless of the working directory Claude Code is launched from.
+> The API token is read directly from the `.env` file at the project root — no need to add it to the `env` block. The server resolves the `.env` path relative to the package location, so it works regardless of the working directory the client is launched from.
 
-After saving, restart Claude Code. You should see `clicktime` listed as a connected MCP server.
+**Client-specific config file locations:**
+
+| Client | Config file |
+|---|---|
+| Claude Code | `~/.claude.json` or `.claude/settings.json` |
+| Cursor | `.cursor/mcp.json` |
+| Zed | `~/.config/zed/settings.json` |
+| Other | Refer to your client's MCP documentation |
 
 ---
 
@@ -146,7 +153,7 @@ After saving, restart Claude Code. You should see `clicktime` listed as a connec
 
 > "Log 8 hours per day Monday through Friday this week on the XPTO project with note 'backend development'."
 
-Claude will call `list_jobs` to find the job ID, then `create_time_entry` five times.
+The assistant will call `list_jobs` to find the job ID, then `create_time_entry` five times.
 
 ---
 
@@ -154,7 +161,7 @@ Claude will call `list_jobs` to find the job ID, then `create_time_entry` five t
 
 > "Submit my timesheet for this week."
 
-Claude calls `list_my_timesheets` to find the open timesheet, then `submit_timesheet`.
+The assistant calls `list_my_timesheets` to find the open timesheet, then `submit_timesheet`.
 
 ---
 
@@ -162,7 +169,7 @@ Claude calls `list_my_timesheets` to find the open timesheet, then `submit_times
 
 > "Generate the April 2025 report as a PDF."
 
-Claude calls `get_monthly_report(year=2025, month=4)`. The PDF is saved to `CLICKTIME_REPORT_DIR` and the path is returned.
+The assistant calls `get_monthly_report(year=2025, month=4)`. The PDF is saved to `CLICKTIME_REPORT_DIR` and the path is returned.
 
 The PDF is formatted as a **Vertical Timesheet** (portrait A4), matching the ClickTime web export:
 - One section per calendar day (including weekends with 0.00 Total)
@@ -177,11 +184,11 @@ The PDF is formatted as a **Vertical Timesheet** (portrait A4), matching the Cli
 
 > "Show me all submitted timesheets from my team this week."
 
-Claude calls `list_team_members`, then `get_member_timesheets` for each member filtered by `Submitted`.
+The assistant calls `list_team_members`, then `get_member_timesheets` for each member filtered by `Submitted`.
 
 > "Approve João's timesheet."
 
-Claude calls `approve_timesheet` with the correct ID.
+The assistant calls `approve_timesheet` with the correct ID.
 
 ---
 
@@ -189,14 +196,14 @@ Claude calls `approve_timesheet` with the correct ID.
 
 > "How many hours have I logged this week?"
 
-Claude calls `get_weekly_summary` and shows the breakdown.
+The assistant calls `get_weekly_summary` and shows the breakdown.
 
 ---
 
 ## Troubleshooting
 
 **`CLICKTIME_API_TOKEN is not set`**
-Make sure the token is in the `env` block of your MCP config (or in `.env` if running locally).
+Make sure the token is set in `.env` at the project root.
 
 **`Error: ClickTime API error 401`**
 The token is invalid or expired. Generate a new one in ClickTime → My Preferences → Authentication Token.
@@ -212,9 +219,9 @@ Make sure `CLICKTIME_REPORT_DIR` points to a directory you have write access to.
 
 ---
 
-## Future automation
+## Using the tools without an LLM
 
-The MCP server can be called from scripts without Claude:
+The underlying functions can be called directly from Python scripts:
 
 ```python
 import asyncio
@@ -228,5 +235,3 @@ async def run():
 
 asyncio.run(run())
 ```
-
-You can also use Claude Code's `/schedule` feature to set up recurring reminders — for example, every Friday to submit your timesheet.
