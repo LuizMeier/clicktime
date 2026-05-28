@@ -82,49 +82,87 @@ async def get_monthly_report(
 
 def _build_pdf(entries: list, user_name: str, year: int, month: int, output_path: str) -> None:
     from reportlab.lib.colors import HexColor, white
-    from reportlab.lib.enums import TA_CENTER
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib.styles import ParagraphStyle
     from reportlab.lib.units import cm
-    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    from reportlab.platypus import (
+        Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle, PageBreak,
+    )
 
-    NAVY = HexColor("#1a1a2e")
+    # ── Palette ──────────────────────────────────────────────────────────────
+    NAVY       = HexColor("#1a1a2e")
     LIGHT_GRAY = HexColor("#f5f5f5")
-    MID_GRAY = HexColor("#cccccc")
-    DARK_GRAY = HexColor("#e0e0e0")
+    MID_GRAY   = HexColor("#cccccc")
+    DARK_GRAY  = HexColor("#e0e0e0")
+    WHITE      = white
 
     month_name = datetime(year, month, 1).strftime("%B %Y")
 
-    doc = SimpleDocTemplate(
-        output_path,
-        pagesize=A4,
-        leftMargin=2 * cm,
-        rightMargin=2 * cm,
-        topMargin=2 * cm,
-        bottomMargin=2 * cm,
-    )
-
+    # ── Styles ───────────────────────────────────────────────────────────────
     title_style = ParagraphStyle(
-        "ReportTitle", fontSize=20, fontName="Helvetica-Bold",
+        "RTitle", fontSize=20, fontName="Helvetica-Bold",
         textColor=NAVY, spaceAfter=4,
     )
     subtitle_style = ParagraphStyle(
-        "ReportSubtitle", fontSize=11, fontName="Helvetica",
+        "RSubtitle", fontSize=11, fontName="Helvetica",
         textColor=HexColor("#555555"), spaceAfter=2,
     )
     section_style = ParagraphStyle(
-        "SectionHeader", fontSize=13, fontName="Helvetica-Bold",
+        "RSection", fontSize=13, fontName="Helvetica-Bold",
         textColor=NAVY, spaceBefore=14, spaceAfter=6,
     )
+    # Cell styles used inside tables — Paragraph objects respect column width
+    cell_normal = ParagraphStyle(
+        "CellNormal", fontSize=9, fontName="Helvetica",
+        textColor=HexColor("#222222"), leading=12,
+    )
+    cell_bold = ParagraphStyle(
+        "CellBold", fontSize=9, fontName="Helvetica-Bold",
+        textColor=HexColor("#222222"), leading=12,
+    )
+    cell_center = ParagraphStyle(
+        "CellCenter", fontSize=9, fontName="Helvetica",
+        textColor=HexColor("#222222"), leading=12, alignment=TA_CENTER,
+    )
+    cell_header = ParagraphStyle(
+        "CellHeader", fontSize=9, fontName="Helvetica-Bold",
+        textColor=WHITE, leading=12,
+    )
+    cell_header_center = ParagraphStyle(
+        "CellHeaderCenter", fontSize=9, fontName="Helvetica-Bold",
+        textColor=WHITE, leading=12, alignment=TA_CENTER,
+    )
 
-    elements = []
+    def p(text: str, style: ParagraphStyle) -> Paragraph:
+        """Wrap text in a Paragraph so ReportLab respects column width."""
+        return Paragraph(str(text) if text else "", style)
 
+    # ── Document — portrait for the summary, landscape for the detail ────────
+    # We use a single landscape document so the wide detail table fits cleanly.
+    # A4 landscape: 297mm × 210mm → usable ≈ 25.7cm after 2cm margins each side.
+    PAGE = landscape(A4)
+    MARGIN = 2 * cm
+    USABLE_W = PAGE[0] - 2 * MARGIN  # ≈ 25.7 cm
+
+    doc = SimpleDocTemplate(
+        output_path,
+        pagesize=PAGE,
+        leftMargin=MARGIN,
+        rightMargin=MARGIN,
+        topMargin=MARGIN,
+        bottomMargin=MARGIN,
+    )
+
+    elements: list = []
+
+    # ── Header ───────────────────────────────────────────────────────────────
     elements.append(Paragraph("ClickTime Monthly Report", title_style))
     elements.append(Paragraph(f"{user_name}  —  {month_name}", subtitle_style))
     elements.append(Paragraph(f"Generated on {date.today().isoformat()}", subtitle_style))
     elements.append(Spacer(1, 0.6 * cm))
 
-    # --- Summary by project ---
+    # ── Summary by project ───────────────────────────────────────────────────
     by_job: dict = defaultdict(float)
     for e in entries:
         job = (e.get("Job") or {}).get("Name") or e.get("JobID") or "Unknown"
@@ -133,68 +171,86 @@ def _build_pdf(entries: list, user_name: str, year: int, month: int, output_path
 
     elements.append(Paragraph("Summary by Project", section_style))
 
-    summary_rows = [["Project", "Hours", "%"]]
+    # Summary table: Project(wide) | Hours | %
+    sum_col = [14 * cm, 3 * cm, 3 * cm]
+    summary_rows = [
+        [p("Project", cell_header), p("Hours", cell_header_center), p("%", cell_header_center)]
+    ]
     for job, hours in sorted(by_job.items()):
         pct = (hours / total_hours * 100) if total_hours else 0
-        summary_rows.append([job, f"{hours:.2f}", f"{pct:.1f}%"])
-    summary_rows.append(["TOTAL", f"{total_hours:.2f}", "100%"])
-
-    col_widths = [10 * cm, 3 * cm, 3 * cm]
-    summary_table = Table(summary_rows, colWidths=col_widths)
-    summary_table.setStyle(
-        TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), NAVY),
-            ("TEXTCOLOR", (0, 0), (-1, 0), white),
-            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("FONTSIZE", (0, 0), (-1, -1), 10),
-            ("ALIGN", (1, 0), (-1, -1), "CENTER"),
-            ("ROWBACKGROUNDS", (0, 1), (-1, -2), [LIGHT_GRAY, white]),
-            ("BACKGROUND", (0, -1), (-1, -1), DARK_GRAY),
-            ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
-            ("GRID", (0, 0), (-1, -1), 0.5, MID_GRAY),
-            ("TOPPADDING", (0, 0), (-1, -1), 6),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-            ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        summary_rows.append([
+            p(job, cell_normal),
+            p(f"{hours:.2f}", cell_center),
+            p(f"{pct:.1f}%", cell_center),
         ])
-    )
-    elements.append(summary_table)
-    elements.append(Spacer(1, 0.4 * cm))
+    summary_rows.append([
+        p("TOTAL", cell_bold),
+        p(f"{total_hours:.2f}", cell_center),
+        p("100%", cell_center),
+    ])
 
-    # --- Daily detail ---
+    summary_table = Table(summary_rows, colWidths=sum_col)
+    summary_table.setStyle(TableStyle([
+        ("BACKGROUND",    (0, 0),  (-1, 0),  NAVY),
+        ("ROWBACKGROUNDS",(0, 1),  (-1, -2), [LIGHT_GRAY, WHITE]),
+        ("BACKGROUND",    (0, -1), (-1, -1), DARK_GRAY),
+        ("GRID",          (0, 0),  (-1, -1), 0.5, MID_GRAY),
+        ("TOPPADDING",    (0, 0),  (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0),  (-1, -1), 6),
+        ("LEFTPADDING",   (0, 0),  (-1, -1), 8),
+        ("RIGHTPADDING",  (0, 0),  (-1, -1), 8),
+        ("VALIGN",        (0, 0),  (-1, -1), "MIDDLE"),
+    ]))
+    elements.append(summary_table)
+    elements.append(Spacer(1, 0.6 * cm))
+
+    # ── Detail table ─────────────────────────────────────────────────────────
+    # Columns: Date | Job | Phase | SubPhase | Task | Hours | Notes
+    # Total = USABLE_W ≈ 25.7cm
+    # Date(2.2) + Job(4.5) + Phase(4.5) + SubPhase(3.5) + Task(3.0) + Hours(1.5) + Notes(6.5) = 25.7
+    det_col = [2.2*cm, 4.5*cm, 4.5*cm, 3.5*cm, 3.0*cm, 1.5*cm, 6.5*cm]
+
     elements.append(Paragraph("Daily Detail", section_style))
 
-    detail_rows = [["Date", "Project / Phase", "Task", "Hours", "Notes"]]
+    detail_rows = [[
+        p("Date",     cell_header),
+        p("Job",      cell_header),
+        p("Phase",    cell_header),
+        p("SubPhase", cell_header),
+        p("Task",     cell_header),
+        p("Hrs",      cell_header_center),
+        p("Notes",    cell_header),
+    ]]
+
     for e in sorted(entries, key=lambda x: x.get("Date", "")):
-        job = (e.get("Job") or {}).get("Name") or e.get("JobID") or ""
-        phase = (e.get("Phase") or {}).get("Name") or ""
+        job      = (e.get("Job")      or {}).get("Name") or e.get("JobID")      or ""
+        phase    = (e.get("Phase")    or {}).get("Name") or ""
         subphase = (e.get("SubPhase") or {}).get("Name") or ""
-        project_cell = " › ".join(filter(None, [job, phase, subphase]))
-        task = (e.get("Task") or {}).get("Name") or e.get("TaskID") or ""
+        task     = (e.get("Task")     or {}).get("Name") or e.get("TaskID")     or ""
+        notes    = e.get("Comment") or ""
+        hours    = float(e.get("Hours", 0))
+
         detail_rows.append([
-            e.get("Date", ""),
-            project_cell,
-            task,
-            f"{float(e.get('Hours', 0)):.2f}",
-            e.get("Comment") or "",
+            p(e.get("Date", ""), cell_normal),
+            p(job,      cell_normal),
+            p(phase,    cell_normal),
+            p(subphase, cell_normal),
+            p(task,     cell_normal),
+            p(f"{hours:.2f}", cell_center),
+            p(notes,    cell_normal),
         ])
 
-    detail_col_widths = [2.5 * cm, 5 * cm, 3 * cm, 1.5 * cm, 4.5 * cm]
-    detail_table = Table(detail_rows, colWidths=detail_col_widths)
-    detail_table.setStyle(
-        TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), NAVY),
-            ("TEXTCOLOR", (0, 0), (-1, 0), white),
-            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("FONTSIZE", (0, 0), (-1, -1), 9),
-            ("ALIGN", (3, 0), (3, -1), "CENTER"),
-            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [LIGHT_GRAY, white]),
-            ("GRID", (0, 0), (-1, -1), 0.5, MID_GRAY),
-            ("TOPPADDING", (0, 0), (-1, -1), 5),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-            ("LEFTPADDING", (0, 0), (-1, -1), 6),
-            ("WORDWRAP", (4, 1), (4, -1), "CJK"),
-        ])
-    )
+    detail_table = Table(detail_rows, colWidths=det_col, repeatRows=1)
+    detail_table.setStyle(TableStyle([
+        ("BACKGROUND",    (0, 0),  (-1, 0),  NAVY),
+        ("ROWBACKGROUNDS",(0, 1),  (-1, -1), [LIGHT_GRAY, WHITE]),
+        ("GRID",          (0, 0),  (-1, -1), 0.5, MID_GRAY),
+        ("TOPPADDING",    (0, 0),  (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0),  (-1, -1), 5),
+        ("LEFTPADDING",   (0, 0),  (-1, -1), 6),
+        ("RIGHTPADDING",  (0, 0),  (-1, -1), 6),
+        ("VALIGN",        (0, 0),  (-1, -1), "TOP"),
+    ]))
     elements.append(detail_table)
 
     doc.build(elements)
