@@ -79,7 +79,6 @@ Edit (or create) `.claude/settings.json` in your project, or the global settings
         "run", "clicktime-mcp"
       ],
       "env": {
-        "CLICKTIME_API_TOKEN": "your_token_here",
         "CLICKTIME_REPORT_DIR": "/absolute/path/to/reports"
       }
     }
@@ -87,7 +86,7 @@ Edit (or create) `.claude/settings.json` in your project, or the global settings
 }
 ```
 
-> Prefer setting the token in the `env` block rather than relying on a `.env` file, so it works regardless of the working directory Claude Code is launched from.
+> The API token is read directly from the `.env` file at the project root — no need to add it to the MCP `env` block. The server resolves the `.env` path relative to the package location, so it works regardless of the working directory Claude Code is launched from.
 
 After saving, restart Claude Code. You should see `clicktime` listed as a connected MCP server.
 
@@ -165,9 +164,12 @@ Claude calls `list_my_timesheets` to find the open timesheet, then `submit_times
 
 Claude calls `get_monthly_report(year=2025, month=4)`. The PDF is saved to `CLICKTIME_REPORT_DIR` and the path is returned.
 
-The PDF contains:
-- Hours summary per project (with percentages)
-- Day-by-day detail table with project, task, hours and notes
+The PDF is formatted as a **Vertical Timesheet** (portrait A4), matching the ClickTime web export:
+- One section per calendar day (including weekends with 0.00 Total)
+- Entry rows with project, task, and comment columns
+- Bold daily total per day
+- Grand Total row on the last page
+- Per-page footer with signature lines and "Prepared by ClickTime on \<date\> — Page X of Y"
 
 ---
 
